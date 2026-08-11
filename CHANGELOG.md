@@ -13,7 +13,44 @@ per-file diff commands.
 
 ## [Unreleased]
 
+### Added
+
+- **`security_guards.py` now holds `.claude/settings.json` hooks to an allowlist** - the
+  guard read `permissions.allow` and nothing else, so a `hooks` block in the same file
+  passed silently. A hook is strictly more dangerous than a pre-approved permission: a
+  permission pre-approves something Claude *may* choose to do, while a hook runs
+  unconditionally when its event fires, with no prompt and no model decision in between.
+  This is not hypothetical - it is the vector the Shai-Hulud worm used in its August 2026
+  wave, planting a `SessionStart` hook in `.claude/settings.json` that executed on session
+  start ([JFrog research](https://research.jfrog.com/post/shai-hulud-is-back-august/)).
+  For a template thousands of people are invited to fork, that is the riskiest key in the
+  file the guard already parses. `ALLOWED_HOOKS` ships empty (the template has no hooks),
+  the check runs *before* the permissions shape guards so a malformed permissions block
+  cannot return early and skip it, and unrecognised hook layouts fail closed rather than
+  being skipped. Eight new `HookGuardTests` cases; 14 of the suite's 26 tests fail against
+  the unpatched guard.
+
 ### Changed
+
+- **`/add-portal` now specifies how a generated skill handles an API token** (#304) - the command
+  could already scaffold a skill for a portal reachable only through a paid fetching
+  service, but said nothing about the credential such a skill needs. It now checks for that
+  case during reconnaissance and raises the per-call cost with the user *before*
+  scaffolding. That check is explicitly subordinate to the `robots.txt`/terms decision
+  in Step 2.4 - a paid fetching service never launders a refusal, and the credential
+  path exists only for portals whose `robots.txt` permits access but whose bot
+  protection blocks ordinary fetches. The portal-skill contract requires the token to come from a
+  `<SERVICE>_API_TOKEN` environment variable (never a CLI flag, never a fixture) and to
+  fail with `MISSING_CREDENTIALS` when unset; and such a skill's `SKILL.md` must carry a
+  Setup section naming the service, the variable, and the billing. Spec only - no shipped
+  portal needs a credential, so no existing skill changes. Thanks @Haseeb-1698.
+
+- **`/add-portal`'s fetching contract line now states the honest-UA posture** - it read
+  "browser User-Agent", predating the repo-wide shift to honest self-identification
+  (#283, #277 and the portal-CLI fixes that followed). A generated skill now defaults to
+  `Mozilla/5.0 (compatible; <portal>-cli/1.0)` - the convention every shipped portal CLI
+  follows - and escalation to browser headers goes through the robots.txt gate in
+  `09-web-research.md`, never the CLI's default.
 
 - **CI discovers portal CLIs instead of hardcoding them** (#310). The `cli-checks` matrix
   is now emitted by a `discover-clis` job that finds every `.agents/skills/*/cli/package.json`,
