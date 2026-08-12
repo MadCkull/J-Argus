@@ -15,6 +15,19 @@ per-file diff commands.
 
 ### Added
 
+- **Commit-level upstream triage for forks** (#305). A new `tools/upstream_triage.py` walks the
+  commits a fork is behind upstream and sorts them into "worth reviewing" vs "probably skip":
+  cherry-picks already applied drop off on their own (matched by `git patch-id`, so ported work
+  needs no bookkeeping), commits that only touch files the fork removed are set aside, and SHAs in
+  a flat `.github/upstream-wontport.txt` stop resurfacing. It's the commit-history companion to
+  `check_upstream_updates.py`'s version stamps - the two cross-reference each other in their output.
+  Report-only by design: it prints ready-to-run `git cherry-pick` lines but never merges, pushes, or
+  opens a PR, because on a fork "applies cleanly" isn't "correct". A `.github/workflows/upstream-watch.yml`
+  runs it weekly into a rolling issue, guarded to no-op on the upstream template (pinned by a test) and
+  scoped to the built-in `GITHUB_TOKEN` so it can never write outside its own fork. SETUP.md 8
+  introduces both tools side by side. Offline tests cover patch-id matching, relevance filtering, the
+  won't-port list, and the workflow guard. Thanks @anjolok1997.
+
 - **`security_guards.py` now holds `.claude/settings.json` hooks to an allowlist** - the
   guard read `permissions.allow` and nothing else, so a `hooks` block in the same file
   passed silently. A hook is strictly more dangerous than a pre-approved permission: a
@@ -60,6 +73,31 @@ per-file diff commands.
   `/add-portal`'s Register step now says so. Thanks @ayobamiseun.
 
 ### Fixed
+
+- **`/upskill` reports are now gitignored at the path the skill actually writes them to.**
+  The ignore rule `upskill/*.md` is rooted (a middle slash anchors a gitignore pattern to the
+  repo root), but `/upskill` is a *skill*, and skills resolve bare relative paths against
+  their own directory - the same observed behavior the `**/job_scraper/*` rules exist for.
+  A report written to `.claude/skills/upskill/upskill/report-*.md` was therefore not ignored
+  (`git check-ignore` confirms it on the unpatched tree), and an upskill report is the
+  candidate's skill gaps and weaknesses measured against named employers - among the most
+  sensitive files the workflow generates. The obvious widening, `**/upskill/*.md`, would have
+  ignored the template's own `.claude/skills/upskill/SKILL.md` (the skill directory shares
+  the name), so the new rule pins the report-file prefix instead: `**/upskill/report-*.md`.
+  Added to `.gitignore` and `security_guards.py`'s `REQUIRED_IGNORE_RULES`, with a
+  `check-ignore`-based test pinning both properties - reports ignored at both depths,
+  `SKILL.md` still tracked - which presence checks alone cannot see.
+
+- **Dropped the phantom `evaluated` value from `seen_jobs.json`'s status vocabulary** (#315).
+  The schema block in the job-scraper skill documented `new/skipped/evaluated/ranked/expired`,
+  but `evaluated` has had no writer and no reader since the initial release - `new`/`skipped`
+  come from `/scrape`, `ranked`/`expired` from `/rank`, and nothing ever set or selected
+  `evaluated`. Post-#269 the tracker owns all lifecycle state after drafting, so the value had
+  no future role either; it is now removed rather than wired up. `/rank` Step 1's `--all`
+  wording ("all non-applied entries") leaned on an `applied` status the schema deliberately
+  lacks and now names what it means: entries of any status, minus the tracker exclusion set.
+  Forks that wrote their own tooling against the documented vocabulary should note the value
+  was never produced by any shipped command.
 
 - **`/apply` archives the job posting while it still holds it** (#306). `/apply` drafted two
   documents and a tracker row from the full posting, then let the text die with the session;
