@@ -15,6 +15,142 @@ per-file diff commands.
 
 ### Added
 
+- **`seen_jobs.json` entries record which mechanism produced them** - a new additive `source`
+  field (`cli` for Step 1b portal-CLI output, `websearch` for the Step 1c fallback), a Step 1c
+  rule tagging fallback results at collection time, and a `fallback (websearch):` line in the
+  Step 5 run summary naming the portals that ran on the fallback. Motivated by the
+  ghost-LinkedIn-jobs report (#331): when a stored job later turns out not to exist at its URL,
+  triage hinges on whether the entry came from live CLI output or a search index that can be
+  weeks stale - evidence that previously lived only in the run's scrollback. An entry that is
+  missing `source` predates the field and is never backfilled; a presented job with no
+  `seen_jobs.json` entry at all points at fabrication, which the scraper's Rule 1 forbids.
+  Pinned by `tests/test_scrape_provenance.py`. `job-scraper/SKILL.md` sits outside the
+  `framework_version`-marked set, so no version bump applies.
+
+### Changed
+
+- **Job matching reframed around function, not title** (`framework_version` 1.2.2 -> 1.2.3 in
+  `04-job-evaluation.md`) - title-lookalike matching throws away career capital that doesn't
+  fit one job-title box (e.g. a background spanning research leadership, platform ownership,
+  and program management gets collapsed into whichever single title sounds closest). `/setup`,
+  `search-queries.md`, and `04-job-evaluation.md` now guide the candidate to define priority
+  categories by function - the kind of problem a role solves - and to list several plausible
+  job titles as query variants within each category, rather than betting an entire priority
+  tier on one exact title string.
+
+- **CONTRIBUTING: invited PRs are reserved for the invitee** - when a maintainer comment
+  explicitly invites a named contributor to implement an issue they diagnosed or designed,
+  the implementation is theirs for a stated window (default seven days, longer on request);
+  a duplicate PR filed inside that window closes in the invitee's favor regardless of
+  arrival order. Prospective from 2026-08-14. Sits alongside the existing credit norm.
+
+### Fixed
+
+- **`jobbank-search` search output now carries the `/scrape` contract's `date` field** (#342) -
+  the CLI emitted `posted` (full ISO 8601) but not the cross-portal `date` key, the one Step 2
+  contract field it was missing. Search results now additively emit `date` as `YYYY-MM-DD`
+  derived from `posted` (kept unchanged), `null` when the feed item carries no `pubDate`. The
+  result mapping is extracted into an exported `normalizeSearchItem` so the derivation is
+  pinned by tests. Completes the portal-contract series with #339 (jobnet) and #340
+  (jobdanmark).
+
+- **`jobdanmark-search` search output now carries the `/scrape` contract fields** - the CLI
+  exposed the API-native schema (`companyName`, `publishedDate` in `DD-MM-YYYY`, …) with no
+  `company`, `location`, `date` or `deadline`, so every `/scrape` run flagged jobdanmark as
+  degraded and the `seen_jobs.json` dedupe lost the company. Search results now additively emit
+  `company`, `location` (city after the postal code in `companyAddress`), and `date`/`deadline`
+  in the `YYYY-MM-DD` convention, with null-safe handling of a missing address.
+
+- **`jobnet-search` search output now carries the `/scrape` contract fields** - the CLI emitted
+  the raw Jobnet API schema (`jobAdId`, `hiringOrgName`, `publicationDate`, …) with no
+  `company`, `location`, `date` or `url`, so every `/scrape` run flagged jobnet as degraded
+  forever (CI stayed green), the `seen_jobs.json` dedupe fell back to company+title, and `/rank`
+  lost the posting link. Search results now additively emit `company`, `location`, `date`,
+  `deadline` and `url` (`https://jobnet.dk/find-job/{jobAdId}` - the `/job/` route is
+  login-walled); the API's `1900-01-01` "deadline not disclosed" sentinel maps to `null`.
+
+- **A `/` in a company or role name no longer nests the application archive one level too deep**
+  (jakob1379/ai-job-search#22). `Novo Nordisk A/S` derived
+  `documents/applications/novo_nordisk_a/s_data_scientist/` - written and found by every command
+  that derives the path, silently skipped by the two that enumerate it, so the application never
+  appeared in `/html-report`'s dashboard and `/setup`'s calibration never learned from it. The
+  **Subfolder naming** rule in `documents/README.md` now drops every character that is not a
+  letter, digit or underscore (collapsing underscore runs, trimming the ends), and the derivation
+  sites - `/apply`, `/outcome`, the direct application skill, `/gmail-sync`, `/interview`, and
+  `/notion-sync` - cite that rule instead of paraphrasing it. An all-punctuation value that derives
+  to an empty name now stops for user correction instead of writing into the archive root. The
+  application assistant's `framework_version` moves 1.3.3 → 1.3.4. **Already-nested archives are
+  not migrated**: an archive written under the old rule stays where it is until the user moves it;
+  only newly derived names change. Thanks @jakob1379 for the report.
+
+- **The `/html-report` dashboard now reads and renders the tracker's `deadline`** (follow-up to
+  #319). The tracker gained a fourteenth `deadline` column and every other consumer (`/outcome`,
+  `/upskill`, `/notion-sync`) was updated to know it, but the dashboard's Step 1 field
+  enumeration and Step 3 table columns still listed the original thirteen - the one surface
+  where the column could not be seen at all, so a `drafted` application's clock stayed invisible
+  in the report that reviews the pipeline end to end. The Step 1 enumeration now matches the
+  canonical 14-column header and the applications table can show a `Deadline` column, subject to
+  the existing empty-column rule. Pinned by `tests/test_html_report_command.py` so a future
+  column addition cannot silently vanish from the dashboard again.
+
+- **Application deadlines are written down at every moment the framework provably holds them**
+  (#319). `/scrape` fetched the deadline and rendered it in a table, `/rank` turned it into the 🔥
+  urgency marker and the expiry check, and nothing stored it - so the marker fired exactly once,
+  every later run had to re-fetch a posting that might have expired to recover the date, and a
+  `drafted` application (whose only applicable clock is its deadline) had no time-based signal at
+  all. `seen_jobs.json` entries now carry a `deadline` (base field, written on first sight,
+  refreshed by `/rank` Step 4, `null` vs missing distinguished and never guessed); `/rank` Step 3
+  re-derives urgency from the stored value with no re-fetch and sweeps already-ranked entries past
+  their deadline into `expired`; the tracker gains a fourteenth `deadline` column appended last,
+  with a header-line-only migration for existing trackers; `/apply` Step 0 extracts the deadline
+  and Step 6b writes it (including the `/scrape` path via the assistant SKILL.md); `/outcome`
+  surfaces it on open rows and flags near/passed deadlines on `drafted` rows without changing the
+  no-follow-up rule; and the row-rewriting paths (`/outcome` Step 4, `/gmail-sync` Step 7a) now
+  preserve every unparsed field so the new column survives the first status update. `/notion-sync`
+  names the tracker as the Deadline source (tracker wins), `/upskill`'s column list stays true, and
+  `job-application-assistant/SKILL.md` bumps `framework_version` 1.3.2 → 1.3.3. Pinned by
+  `tests/test_rank_command.py`, `tests/test_apply_records_application.py`, and
+  `tests/test_upskill_skill.py`.
+
+  The sweep's edges are stated rather than left to the reader: an entry with no stored `deadline`
+  is left alone and never inferred from another field (the majority case, since most entries
+  predate the column), `--all` re-scores any status including `expired` so a swept job is
+  recoverable, and `/rank` Step 4's idempotency rule now names the sweep as its deliberate
+  exception instead of contradicting it. Step 5 reports how many entries were swept and how many
+  were retired, so an automated status change is never silent. `/outcome` Step 1 states that the
+  header append is the one edit it may make outside a matched row, so it does not read as a
+  violation of Step 4's own "never restructure the CSV". `/notion-sync` forbids reconciling two
+  disagreeing deadlines by taking the earlier or later of them.
+
+- **`convert_salary_excel.py` no longer misreads whole-thousands cells from a Danish-locale
+  export** - a cell like `60.000` (thousands separator, no decimal comma) was handed to
+  `float()` and silently written as `60.0`, a 1000x-wrong salary in `salary_data.json` that
+  then rendered with a meaningless `vs baseline` percentage in `/apply`. The comma-side
+  mirror (`1,234`) was already guarded as ambiguous and skipped; the dot side had no guard,
+  and tests only pinned the both-separators form (`1.234,5`). `\d+\.\d{3}` is now rejected
+  the same way, so the shared never-guess policy applies to both separators and the rows in
+  between (e.g. `60.000,50`, `108,5`) keep parsing exactly as before. Pinned by
+  `tests/test_convert_salary_excel.py`.
+
+- **`main_example.tex` compiles on apt-packaged moderncv** (#242) - the banking template
+  set its name styling through `\firstnamestyle`/`\lastnamestyle`, which moderncv 2.3.1
+  (Debian/Ubuntu apt) does not have, so a fresh fork could not compile its own example CV
+  on that toolchain. Name styling now routes through `\namefont`, the hook every name-style
+  macro shares: live on every version (on 2.4+, head iii's `\firstnamestyle`/`\lastnamestyle`
+  both route through `\namefont`, so the override is what sets the 34pt name there too), and
+  the only option on 2.3.1 where those macros do not exist. Two review follow-ups landed in the
+  same change: the `\hypersetup` comment now names the real clash mechanism
+  (`\RequirePackage[unicode]{hyperref}` on < 2.4; `\PassOptionsToPackage`, introduced in
+  2.4.0, is what removes the clash), and the metadata block sets `pdfpagemode=UseNone` - a
+  `FullScreen` value there would win over the class's own `\AtEndPreamble` default and make
+  every CV open in fullscreen presentation mode. `05-cv-templates.md`'s preamble copy stays
+  in lockstep (framework_version 1.4.0 -> 1.4.1). Verified on moderncv 2.5.1: exit 0,
+  exactly 2 pages, rendering unchanged.
+
+## [1.5.0] - 2026-08-12
+
+### Added
+
 - **Commit-level upstream triage for forks** (#305). A new `tools/upstream_triage.py` walks the
   commits a fork is behind upstream and sorts them into "worth reviewing" vs "probably skip":
   cherry-picks already applied drop off on their own (matched by `git patch-id`, so ported work
@@ -517,7 +653,8 @@ At this baseline the framework provides:
 - **Cross-runtime support** - a root `AGENTS.md` pointer so Codex and Antigravity can
   discover the portable portal skills, with Claude Code as the reference runtime.
 
-[Unreleased]: https://github.com/MadsLorentzen/ai-job-search/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/MadsLorentzen/ai-job-search/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/MadsLorentzen/ai-job-search/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/MadsLorentzen/ai-job-search/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/MadsLorentzen/ai-job-search/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/MadsLorentzen/ai-job-search/compare/v1.1.0...v1.2.0
