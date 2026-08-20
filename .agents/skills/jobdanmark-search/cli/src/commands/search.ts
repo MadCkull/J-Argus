@@ -34,9 +34,21 @@ interface ApiSearchResponse {
   totalPages: number
 }
 
-function toContractDate(value: string | null): string | null {
+export function toContractDate(value: string | null): string | null {
   const match = value?.match(/^(\d{2})-(\d{2})-(\d{4})$/)
   return match ? `${match[3]}-${match[2]}-${match[1]}` : (value ?? null)
+}
+
+// Live companyAddress values put the city after the postcode either as
+// "Lautruphoej 2, 2750 Ballerup" or "2670, Greve". The comma fallback
+// requires a non-digit after the comma so a 4-digit street number
+// ("Vejlevej 1234, 7100 Vejle") never wins over the real postcode.
+export function extractCity(address: string | null): string | null {
+  if (!address) return null
+  const city =
+    address.match(/\d{4}\s+(.+)$/)?.[1] ?? address.match(/\d{4}\s*,\s*([^\d,].*)$/)?.[1]
+  const trimmed = city?.trim()
+  return trimmed ? trimmed : null
 }
 
 export function normalizeItem(item: ApiSearchItem): Record<string, unknown> {
@@ -47,32 +59,14 @@ export function normalizeItem(item: ApiSearchItem): Record<string, unknown> {
   // Extract slug from url path: /job/<slug>
   const slug = relativeUrl.replace(/^\/job\//, "")
 
-  const companyLogo = item.companyLogo
-    ? {
-        key: item.companyLogo.key,
-        url: item.companyLogo.url.startsWith("http")
-          ? item.companyLogo.url
-          : `${BASE_URL}${item.companyLogo.url}`,
-        focalPoint: item.companyLogo.focalPoint,
-      }
-    : null
-
-  const coverImage = item.coverImage
-    ? {
-        key: item.coverImage.key,
-        url: item.coverImage.url.startsWith("http")
-          ? item.coverImage.url
-          : `${BASE_URL}${item.coverImage.url}`,
-        focalPoint: item.coverImage.focalPoint,
-      }
-    : null
-
+  // Presentation-only keys (coverImage, companyLogo, companyLogoSvgMarkup,
+  // overlayColor, silhouetteLogo) are dropped: they were ~40% of a live
+  // payload and the /scrape agent can never use an image or overlay colour.
+  // The #340 compatibility duplicates (companyName, publishedDate,
+  // applicationDeadline) stay.
   return {
     title: item.title,
     companyName: item.companyName,
-    companyLogo,
-    companyLogoSvgMarkup: item.companyLogoSvgMarkup ?? null,
-    overlayColor: item.overlayColor ?? null,
     companyAddress: item.companyAddress,
     jobTypes: item.jobTypes,
     boostJob: item.boostJob,
@@ -80,10 +74,8 @@ export function normalizeItem(item: ApiSearchItem): Record<string, unknown> {
     applicationDeadline: item.applicationDeadline ?? null,
     url: fullUrl,
     slug,
-    coverImage,
-    silhouetteLogo: item.silhouetteLogo,
     company: item.companyName,
-    location: item.companyAddress?.match(/\d{4}\s+(.+)$/)?.[1] ?? null,
+    location: extractCity(item.companyAddress),
     date: toContractDate(item.publishedDate),
     deadline: toContractDate(item.applicationDeadline),
   }

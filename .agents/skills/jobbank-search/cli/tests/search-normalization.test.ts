@@ -33,6 +33,6 @@ describe("Jobbank search normalization", () => {
     expect(result.company).toBe("Acme A/S");
     expect(result.location).toBe("København");
     expect(result.url).toBe("https://jobbank.dk/job/12345/acme/data-scientist");
-    expect(result.deadline).toBe("31.07.2026");
+    expect(result.deadline).toBe("2026-07-31");
   });
 });

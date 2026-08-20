@@ -44,6 +44,33 @@ describe("Jobdanmark search normalization", () => {
     expect(result.company).toBe("Statens It");
   });
 
+  test("extracts the city when a comma follows the postcode (live jobdanmark shape)", () => {
+    const result = normalizeItem({
+      ...item(),
+      companyAddress: "2670, Greve",
+    });
+
+    expect(result.location).toBe("Greve");
+  });
+
+  test("trims trailing whitespace from the extracted city", () => {
+    const result = normalizeItem({
+      ...item(),
+      companyAddress: "7100, Vejle ",
+    });
+
+    expect(result.location).toBe("Vejle");
+  });
+
+  test("does not mistake a 4-digit street number for the postcode", () => {
+    const result = normalizeItem({
+      ...item(),
+      companyAddress: "Vejlevej 1234, 7100 Vejle",
+    });
+
+    expect(result.location).toBe("Vejle");
+  });
+
   test("survives a null companyAddress from the API", () => {
     const result = normalizeItem({
       ...item(),
@@ -60,5 +87,19 @@ describe("Jobdanmark search normalization", () => {
     expect(result.companyName).toBe("Statens It");
     expect(result.publishedDate).toBe("27-07-2026");
     expect(result.applicationDeadline).toBe("17-08-2026");
+  });
+
+  test("omits presentation-only keys the agent can never use", () => {
+    // coverImage/companyLogo/companyLogoSvgMarkup/overlayColor/silhouetteLogo
+    // were ~40% of a live search payload, fed into agent context on every
+    // /scrape query (review finding F3, 2026-08-19). The #340 compatibility
+    // duplicates (companyName, publishedDate, applicationDeadline) stay.
+    const result = normalizeItem(item());
+
+    expect(result).not.toHaveProperty("coverImage");
+    expect(result).not.toHaveProperty("companyLogo");
+    expect(result).not.toHaveProperty("companyLogoSvgMarkup");
+    expect(result).not.toHaveProperty("overlayColor");
+    expect(result).not.toHaveProperty("silhouetteLogo");
   });
 });

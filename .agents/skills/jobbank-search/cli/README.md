@@ -267,7 +267,7 @@ bun run src/cli.ts search --education 24 --suitable-for 2 --since 2026-03-01
 | `url` | string | Full URL to job posting |
 | `posted` | string | Publication date in ISO 8601 |
 | `date` | string \| null | Publication date as `YYYY-MM-DD` (derived from `posted`), or `null` if absent |
-| `deadline` | string \| null | Application deadline as `DD.MM.YYYY` string, or `null` if "løbende" / not present |
+| `deadline` | string \| null | Application deadline as `YYYY-MM-DD` (converted from the feed's `DD.MM.YYYY`), or `null` if "løbende" / not present |
 
 > `meta.total` is fetched from the HTML page `<title>` in a secondary request (pattern: `"{N} relevante job og karriereopslag"`). If the secondary request fails, `meta.total` is `null`.
 
